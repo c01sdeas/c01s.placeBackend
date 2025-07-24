@@ -30,7 +30,7 @@ function uploadImageMiddleware(type: 'blog' | 'tag') {
     },
   });
 
-  const uploadImageMiddleware = multer({storage, limits: { fileSize: 20 * 1024 * 1024 }});
+  const uploadImageMiddleware = multer({storage, limits: { fileSize: 50 * 1024 * 1024 }});
 
   return uploadImageMiddleware;
 

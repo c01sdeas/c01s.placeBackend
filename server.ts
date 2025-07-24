@@ -32,7 +32,7 @@ import flash from 'connect-flash';
 import db from './src/config/db.js'; db();
 import cors from 'cors';
 app.use(cors({
-    origin: 'https://c01s.place',
+    origin: 'http://localhost:4200',
     // origin: true,
     credentials: true
 }));
@@ -44,9 +44,9 @@ app.use(session({
     resave: false,
     saveUninitialized: true,
     cookie: { 
-        secure: true,
+        secure: false,
         httpOnly: true,
-        sameSite: 'none'
+        sameSite: 'lax'
     },
 }));
 

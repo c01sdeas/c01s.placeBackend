@@ -6,7 +6,7 @@ import { subscribeNewsSchemaExport } from './model.js';
 import { ISubscribeToNewsRequestDto, ICreateNewBlogPostRequestDto, IGetAllBlogPostsRequestDto, IGetBlogPostByCategoryIDRequestDto, IGetBlogPostByCategorySlugRequestDto, IGetBlogPostBySlugRequestDto, IGetBlogPostByUsernameAndCategoryIDRequestDto, IGetBlogPostByUsernameRequestDto, IGetBlogPostUserVoteControlRequestDto, IGetBlogPostVotesRequestDto, IUpdateBlogPostContentRequestDto, IUpdateBlogPostImageRequestDto, IUpdateBlogPostIntroRequestDto, IUpdateBlogPostMetaRequestDto, IUpdateBlogPostStatusRequestDto, IUpdateBlogPostTitleRequestDto, IUpdateBlogPostUserVotesRequestDto, ISearchInBlogPostsRequestDto, IUpdateBlogPostViewCountRequestDto, IUpdateBlogPostViewLogRequestDto } from "./requestTypes.d.js";
 import { IBlogListResponseDto, IVoteResponseDto } from './responseTypes.js';
 import { IBlogCategory } from '../blogCategories/modelTypes.js';
-import { IBlogPostVote } from './modelTypes.js';
+import { IBlogPostViewLog, IBlogPostVote } from './modelTypes.js';
 import { Types } from 'mongoose';
 
 
@@ -468,6 +468,7 @@ const getBlogPostBySlugService = async (data:IGetBlogPostBySlugRequestDto):Promi
             categoryID: post.categoryID.toString(),
             categoryTitle: category.title,
             categorySlug: category.slug,
+            categoryStatus: category.status,
             username: post.username,
             status: post.status,
             userNickname: user.userNickname,
@@ -493,25 +494,32 @@ const getAllBlogPostsByCategoryIDService = async (data:IGetBlogPostByCategoryIDR
         const userUsernames = [...new Set(posts.map(post => post.username))]; // Prevent repetitive usernames
         const categoryIDs = [...new Set(posts.map(post => post.categoryID).filter(Boolean))]; // Filter null/undefined categoryIDs
         const blogPostIDs = [...new Set(posts.map(post => post._id.toString()))]; // Prevent duplicate blog IDs
-
+        const objectIds = blogPostIDs
+        .filter(Types.ObjectId.isValid)
+        .map(id => new Types.ObjectId(id));
         const [users, categories, postVotes, viewLogs] = await Promise.all([
             userSchemaExport.find({ username: { $in: userUsernames } }).lean(),
             blogCategorySchemaExport.find({ _id: { $in: categoryIDs } }).lean(),
-            blogPostVoteSchemaExport.find({ blogPostID: { $in: blogPostIDs } }).lean(),
+            blogPostVoteSchemaExport.find({ blogPostID: { $in: objectIds } }).lean(),
             blogPostViewLogSchemaExport.aggregate([
                 {
                     $match: {
-                    blogPostID: { $in: blogPostIDs }
+                    blogPostID: { $in: objectIds }
                     }
                 },
                 {
                     $group: {
-                    _id: null,
+                    _id: "$blogPostID",
                     total: { $sum: "$viewCount" }
                     }
                 }
             ]),
         ]);
+
+        const viewLogsMap = viewLogs.reduce((map, log) => {
+            map[log._id.toString()] = log;
+            return map;
+        }, {} as Record<string, IBlogPostViewLog>);
 
         // 3. Convert the captured data into maps (objects) for quick access
         // This will allow us to search in O(1) time.
@@ -553,9 +561,10 @@ const getAllBlogPostsByCategoryIDService = async (data:IGetBlogPostByCategoryIDR
                 categoryTitle: category ? category.title : null, // null if category not found
                 categorySlug: category ? category.slug : null,   // null if category not found
                 categoryID: category ? category._id.toString() : null,
+                categoryStatus: category ? category.status : null,
                 voteCount: netVoteScore,
                 image: image ? `${process.env.BASE_IMG_URL}${image}` : null,
-                viewCount: viewLogs[0]?.total || 0,
+                viewCount: viewLogsMap[post._id.toString()]?.total || 0,
             } as IBlogListResponseDto;
         });
 
@@ -614,25 +623,32 @@ const getAllBlogPostsByUsernameService = async (data:IGetBlogPostByUsernameReque
         const userUsernames = [...new Set(posts.map(post => post.username))]; // Prevent repetitive usernames
         const categoryIDs = [...new Set(posts.map(post => post.categoryID).filter(Boolean))]; // Filter null/undefined categoryIDs
         const blogPostIDs = [...new Set(posts.map(post => post._id.toString()))]; // Prevent duplicate blog IDs
-
+        const objectIds = blogPostIDs
+        .filter(Types.ObjectId.isValid)
+        .map(id => new Types.ObjectId(id));
         const [users, categories, postVotes, viewLogs] = await Promise.all([
             userSchemaExport.find({ username: { $in: userUsernames } }).lean(),
             blogCategorySchemaExport.find({ _id: { $in: categoryIDs } }).lean(),
-            blogPostVoteSchemaExport.find({ blogPostID: { $in: blogPostIDs } }).lean(),
+            blogPostVoteSchemaExport.find({ blogPostID: { $in: objectIds } }).lean(),
             blogPostViewLogSchemaExport.aggregate([
                 {
                     $match: {
-                    blogPostID: { $in: blogPostIDs }
+                    blogPostID: { $in: objectIds }
                     }
                 },
                 {
                     $group: {
-                    _id: null,
+                    _id: "$blogPostID",
                     total: { $sum: "$viewCount" }
                     }
                 }
             ]),
         ]);
+
+        const viewLogsMap = viewLogs.reduce((map, log) => {
+            map[log._id.toString()] = log;
+            return map;
+        }, {} as Record<string, IBlogPostViewLog>);
 
         // 3. Convert the captured data into maps (objects) for quick access
         // This will allow us to search in O(1) time.
@@ -671,8 +687,9 @@ const getAllBlogPostsByUsernameService = async (data:IGetBlogPostByUsernameReque
                 categoryTitle: category ? category.title : null, // null if category not found
                 categorySlug: category ? category.slug : null,   // null if category not found
                 categoryID: category ? category._id.toString() : null,
+                categoryStatus: category ? category.status : null,
                 voteCount: netVoteScore,
-                viewCount: viewLogs[0]?.total || 0,
+                viewCount: viewLogsMap[post._id.toString()]?.total || 0,
                 image: image ? `${process.env.BASE_IMG_URL}${image}` : null,
             } as IBlogListResponseDto;
         });
@@ -695,25 +712,32 @@ const getAllBlogPostsByUsernameAndCategoryIDService = async (data:IGetBlogPostBy
         const userUsernames = [...new Set(posts.map(post => post.username))]; // Prevent repetitive usernames
         const categoryIDs = [...new Set(posts.map(post => post.categoryID).filter(Boolean))]; // Filter null/undefined categoryIDs
         const blogPostIDs = [...new Set(posts.map(post => post._id.toString()))]; // Prevent duplicate blog IDs
-
+        const objectIds = blogPostIDs
+        .filter(Types.ObjectId.isValid)
+        .map(id => new Types.ObjectId(id));
         const [users, categories, postVotes, viewLogs] = await Promise.all([
             userSchemaExport.find({ username: { $in: userUsernames } }).lean(),
             blogCategorySchemaExport.find({ _id: { $in: categoryIDs } }).lean(),
-            blogPostVoteSchemaExport.find({ blogPostID: { $in: blogPostIDs } }).lean(),
+            blogPostVoteSchemaExport.find({ blogPostID: { $in: objectIds } }).lean(),
             blogPostViewLogSchemaExport.aggregate([
                 {
                     $match: {
-                    blogPostID: { $in: blogPostIDs }
+                    blogPostID: { $in: objectIds }
                     }
                 },
                 {
                     $group: {
-                    _id: null,
+                    _id: "$blogPostID",
                     total: { $sum: "$viewCount" }
                     }
                 }
             ]),
         ]);
+
+        const viewLogsMap = viewLogs.reduce((map, log) => {
+            map[log._id.toString()] = log;
+            return map;
+        }, {} as Record<string, IBlogPostViewLog>);
 
         // 3. Convert the captured data into maps (objects) for quick access
         // This will allow us to search in O(1) time.
@@ -752,8 +776,9 @@ const getAllBlogPostsByUsernameAndCategoryIDService = async (data:IGetBlogPostBy
                 categoryTitle: category ? category.title : null, // null if category not found
                 categorySlug: category ? category.slug : null,   // null if category not found
                 categoryID: category ? category._id.toString() : null,
+                categoryStatus: category ? category.status : null,
                 voteCount: netVoteScore,
-                viewCount: viewLogs[0]?.total || 0,
+                viewCount: viewLogsMap[post._id.toString()]?.total || 0,
                 image: image ? `${process.env.BASE_IMG_URL}${image}` : null,
             } as IBlogListResponseDto;
         });
@@ -776,25 +801,32 @@ const getAllBlogPostsByCategorySlugService = async (data:IGetBlogPostByCategoryS
         const userUsernames = [...new Set(posts.map(post => post.username))];
         const categoryIDs = [...new Set(posts.map(post => post.categoryID).filter(Boolean))];
         const blogPostIDs = [...new Set(posts.map(post => post._id.toString()))];
-
+        const objectIds = blogPostIDs
+        .filter(Types.ObjectId.isValid)
+        .map(id => new Types.ObjectId(id));
         const [users, categories, postVotes, viewLogs] = await Promise.all([
             userSchemaExport.find({ username: { $in: userUsernames } }).lean(),
             blogCategorySchemaExport.find({ _id: { $in: categoryIDs } }).lean(),
-            blogPostVoteSchemaExport.find({ blogPostID: { $in: blogPostIDs } }).lean(),
+            blogPostVoteSchemaExport.find({ blogPostID: { $in: objectIds } }).lean(),
             blogPostViewLogSchemaExport.aggregate([
                 {
                     $match: {
-                    blogPostID: { $in: blogPostIDs }
+                    blogPostID: { $in: objectIds }
                     }
                 },
                 {
                     $group: {
-                    _id: null,
+                    _id: "$blogPostID",
                     total: { $sum: "$viewCount" }
                     }
                 }
             ]),
         ]);
+
+        const viewLogsMap = viewLogs.reduce((map, log) => {
+            map[log._id.toString()] = log;
+            return map;
+        }, {} as Record<string, IBlogPostViewLog>);
 
         const usersMap = users.reduce((map, user) => {
             map[user.username] = user;
@@ -828,8 +860,9 @@ const getAllBlogPostsByCategorySlugService = async (data:IGetBlogPostByCategoryS
                 categoryTitle: category ? category.title : null,
                 categorySlug: category ? category.slug : null,
                 categoryID: category ? category._id.toString() : null,
+                categoryStatus: category ? category.status : null,
                 voteCount: netVoteScore,
-                viewCount: viewLogs[0]?.total || 0,
+                viewCount: viewLogsMap[post._id.toString()]?.total || 0,
                 image: image ? `${process.env.BASE_IMG_URL}${image}` : null,
             } as IBlogListResponseDto;
         });
@@ -849,25 +882,32 @@ const searchInBlogPostsService = async (data:ISearchInBlogPostsRequestDto):Promi
         const userUsernames = [...new Set(posts.map(post => post.username))];
         const categoryIDs = [...new Set(posts.map(post => post.categoryID).filter(Boolean))];
         const blogPostIDs = [...new Set(posts.map(post => post._id.toString()))];
-
+        const objectIds = blogPostIDs
+        .filter(Types.ObjectId.isValid)
+        .map(id => new Types.ObjectId(id));
         const [users, categories, postVotes, viewLogs] = await Promise.all([
             userSchemaExport.find({ username: { $in: userUsernames } }).lean(),
             blogCategorySchemaExport.find({ _id: { $in: categoryIDs } }).lean(),
-            blogPostVoteSchemaExport.find({ blogPostID: { $in: blogPostIDs } }).lean(),
+            blogPostVoteSchemaExport.find({ blogPostID: { $in: objectIds } }).lean(),
             blogPostViewLogSchemaExport.aggregate([
                 {
                     $match: {
-                    blogPostID: { $in: blogPostIDs }
+                    blogPostID: { $in: objectIds }
                     }
                 },
                 {
                     $group: {
-                    _id: null,
+                    _id: "$blogPostID",
                     total: { $sum: "$viewCount" }
                     }
                 }
             ]),
         ]);
+
+        const viewLogsMap = viewLogs.reduce((map, log) => {
+            map[log._id] = log;
+            return map;
+        }, {} as Record<string, IBlogPostViewLog>);
 
         const usersMap = users.reduce((map, user) => {
             map[user.username] = user;
@@ -901,8 +941,9 @@ const searchInBlogPostsService = async (data:ISearchInBlogPostsRequestDto):Promi
                 categoryTitle: category ? category.title : null,
                 categorySlug: category ? category.slug : null,
                 categoryID: category ? category._id.toString() : null,
+                categoryStatus: category ? category.status : null,
                 voteCount: netVoteScore,
-                viewCount: viewLogs[0]?.total || 0,
+                viewCount: viewLogsMap[post._id.toString()]?.total || 0,
                 image: image ? `${process.env.BASE_IMG_URL}${image}` : null,
             } as IBlogListResponseDto;
         });

@@ -1,7 +1,7 @@
 import { userSchemaExport } from "../../../user/authentication/authModel.js";
 import { blogCategorySchemaExport } from "../blogCategories/model.js";
 import { blogPostSchemaExport, blogPostViewLogSchemaExport, blogPostVoteSchemaExport } from "../blogPosts/model.js";
-import { IBlogPost, IBlogPostVote } from "../blogPosts/modelTypes.js";
+import { IBlogPost, IBlogPostViewLog, IBlogPostVote } from "../blogPosts/modelTypes.js";
 import { IGetAllBlogPostsByUsernameForLibraryRequestDto, IGetAllBlogPostsRequestDto } from "../blogPosts/requestTypes.js";
 import { IBlogListResponseDto } from "../blogPosts/responseTypes.js";
 import { blogPostInLibrarySchemaExport, followingTagSchemaExport, librarySchemaExport } from "./model.js";
@@ -186,8 +186,19 @@ const getAllBlogPostsInLibraryService = async (data:IGetAllBlogPostsInLibraryReq
 
         const votes = await blogPostVoteSchemaExport.find({ blogPostID: blogPost._id.toString() }).lean();
 
-        const viewLogs = await blogPostViewLogSchemaExport.find({ blogPostID: blogPost._id.toString() }).lean();
-        const viewLogCount = viewLogs.reduce((sum, viewLog) => sum + viewLog.viewCount, 0);
+        const viewCount = await blogPostViewLogSchemaExport.aggregate([
+            {
+                $match: {
+                    blogPostID: new Types.ObjectId(blogPost._id)
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalViewCount: { $sum: "$viewCount" }
+                }
+            }
+        ]);
 
         const formattedBlogPostsInLibrary:IBlogPostInLibraryResponseDto[] = blogPostsInLibrary.map(blogPostInLibrary => {
             return {
@@ -210,7 +221,7 @@ const getAllBlogPostsInLibraryService = async (data:IGetAllBlogPostsInLibraryReq
                 status: blogPost.status,
                 blogPostInLibraryStatus: blogPostInLibrary.status,
                 userNickname: user.userNickname,
-                viewCount: viewLogCount,
+                viewCount: viewCount[0]?.totalViewCount || 0,
                 voteCount: votes.reduce((sum, vote) => sum + vote.vote, 0)
             }
         })
@@ -370,11 +381,13 @@ const getAllBlogPostsByFollowingTagsService = async (data: IGetAllBlogPostsByFol
         const uniqueTagIds = [...new Set(tagIds)];
         
         const tags = await blogCategorySchemaExport.find({ 
-            _id: { $in: uniqueTagIds } 
+            _id: { $in: uniqueTagIds },
+            status: true
         }).lean();
 
         const blogPosts = await blogPostSchemaExport.find({ 
-            categoryID: { $in: uniqueTagIds } 
+            categoryID: { $in: uniqueTagIds }, 
+            status: true
         }).skip((data.page - 1) * data.limit).sort({ createdAt: -1 }).limit(data.limit).lean();
 
         const tagMap = new Map(tags.map(tag => [tag._id.toString(), tag]));
@@ -386,6 +399,7 @@ const getAllBlogPostsByFollowingTagsService = async (data: IGetAllBlogPostsByFol
         const userMap = new Map(users.map(user => [user.username, user]));
 
         const voteCount = await blogPostVoteSchemaExport.find({ blogPostID: { $in: blogPosts.map(bp => bp._id.toString()) } }).lean();
+        
 
         const votesByBlogPostIdMap = voteCount.reduce((map, vote) => {
             const blogId = vote.blogPostID.toString();
@@ -395,6 +409,41 @@ const getAllBlogPostsByFollowingTagsService = async (data: IGetAllBlogPostsByFol
             map.get(blogId)?.push(vote);
             return map;
         }, new Map<string, IBlogPostVote[]>());
+
+
+        const viewCounts = await blogPostViewLogSchemaExport.aggregate([
+            {
+                $match: {
+                    blogPostID: { $in: blogPosts.map(bp => bp._id) }
+                }
+            },
+            {
+                $group: {
+                    _id: "$blogPostID",
+                    totalViewCount: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const viewCountMap = new Map(
+            viewCounts.map(vc => [vc._id.toString(), vc.totalViewCount])
+        );
+
+        const fixImageUrls = (htmlContent:string) => {
+            return htmlContent.replace(/<img\s+[^>]*src=["']([^"']+)["']/g, (match, src) => {
+                return match.replace(src, `${process.env.BASE_IMG_URL}${src}`);
+            });
+        };
+
+        const extractFirstImageSrc = (htmlContent: string): string | null => {
+            if (!htmlContent) return null;
+          
+            // <img ... src="..." ...> etiketi için regex
+            const imgRegex = /<img[^>]+src=["']?([^"'>\s]+)["']?/i;
+            const match = imgRegex.exec(htmlContent);
+          
+            return match ? match[1] : null;
+          };
         
         const formattedBlogPosts = blogPosts.reduce<IBlogListResponseDto[]>(
             (acc, blogPost) => {
@@ -416,22 +465,23 @@ const getAllBlogPostsByFollowingTagsService = async (data: IGetAllBlogPostsByFol
                 acc.push({
                     id: blogPost._id.toString(),
                     slug: blogPost.slug,
-                    image: blogPost.image,
+                    image: process.env.BASE_IMG_URL ? process.env.BASE_IMG_URL + extractFirstImageSrc(blogPost.content) : '',
                     readingTime: blogPost.readingTime,
                     meta: blogPost.meta,
                     title: blogPost.title,
                     intro: blogPost.intro,
-                    content: blogPost.content,
+                    content: fixImageUrls(blogPost.content),
                     categoryID: tagIdStr,
                     categoryTitle: tag.title,
                     categorySlug: tag.slug,
+                    categoryStatus: tag.status,
                     username: tag.username,
-                    status: tag.status,
+                    status: blogPost.status,
                     userNickname: user.userNickname,
                     createdAt: blogPost.createdAt,
                     updatedAt: blogPost.updatedAt,
                     voteCount: totalVoteScore,
-                    viewCount: blogPost.viewCount
+                    viewCount: viewCountMap.get(blogPost._id.toString()) || 0
                 });
                 
                 return acc;
@@ -565,6 +615,19 @@ const getAllBlogPostsByUsernameForLibraryService = async (data: IGetAllBlogPosts
           
               const votes = await blogPostVoteSchemaExport.find({ blogPostID: blogPost._id.toString() }).lean();
               const totalVoteScore = votes.reduce((sum, vote) => sum + vote.vote, 0);
+              const viewCount = await blogPostViewLogSchemaExport.aggregate([
+                {
+                  $match: {
+                    blogPostID: new Types.ObjectId(blogPost._id)
+                  }
+                },
+                {
+                  $group: {
+                    _id: null,
+                    totalViewCount: { $sum: "$viewCount" }
+                  }
+                }
+              ]);
           
               return {
                 id: blogPost._id.toString(),
@@ -584,7 +647,7 @@ const getAllBlogPostsByUsernameForLibraryService = async (data: IGetAllBlogPosts
                 createdAt: blogPost.createdAt,
                 updatedAt: blogPost.updatedAt,
                 voteCount: totalVoteScore,
-                viewCount: blogPost.viewCount,
+                viewCount: viewCount[0]?.totalViewCount || 0,
               } as IBlogListResponseDto;
             })
           )).filter((x): x is IBlogListResponseDto => x !== null);

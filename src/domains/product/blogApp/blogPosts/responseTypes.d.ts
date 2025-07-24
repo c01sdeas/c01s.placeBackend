@@ -10,6 +10,7 @@ interface IBlogListResponseDto {
     categoryID: string;
     categoryTitle: string;
     categorySlug: string;
+    categoryStatus: boolean;
     username: string;
     status: boolean;
     
