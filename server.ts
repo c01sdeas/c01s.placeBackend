@@ -32,7 +32,7 @@ import flash from 'connect-flash';
 import db from './src/config/db.js'; db();
 import cors from 'cors';
 app.use(cors({
-    origin: 'http://localhost:4200',
+    origin: ["https://c01s.place", "https://www.c01s.place", "http://localhost:4200"],
     // origin: true,
     credentials: true
 }));
