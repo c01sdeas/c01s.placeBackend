@@ -28,6 +28,10 @@ interface ICommentListWithRepliesResponseDto extends ResponseWithMessage<ICommen
     
 }
 
+interface ICommentVoteResponseDto extends ResponseWithMessage<boolean> {
+    
+}
+
 export type {
     ICommentListResponseDto,
     ICommentResponseDto,
@@ -35,5 +39,6 @@ export type {
     ICommentUpdateResponseDto,
     ICreateNewCommentResponseDto,
     ICommentWithReplies,
-    ICommentListWithRepliesResponseDto
+    ICommentListWithRepliesResponseDto,
+    ICommentVoteResponseDto
 }

@@ -7,7 +7,7 @@ import express from 'express';
 import { createNewBlogPostController, deleteBlogPostController, getAllBlogPostsByUsernameAndCategoryIDController, getAllBlogPostsByCategoryIDController, getAllBlogPostsByUsernameController, getAllBlogPostsController, getBlogPostBySlugController, updateBlogPostContentController, updateBlogPostImageController, updateBlogPostIntroController, updateBlogPostMetaController, updateBlogPostStatusController, updateBlogPostTitleController, createNewBlogPostImageController, subscribeToNewsController, updateBlogPostVoteController, getBlogPostVotesController } from "./blogPosts/controller.js";
 import { createNewBlogCategoryController, createNewBlogCategoryImageController, deleteBlogCategoryController, getAllBlogPostCategoriesByUsernameController, getAllBlogPostCategoriesController, getBlogPostCategoryBySlugController, updateBlogCategoryDescriptionController, updateBlogCategoryImageController, updateBlogCategoryMetaController, updateBlogCategoryStatusController, updateBlogCategoryTitleController } from "./blogCategories/controller.js";
 import { createNewBlogLibraryController, createNewBlogPostInLibraryController, createNewFollowingTagController, deleteBlogLibraryController, deleteBlogPostInLibraryController, deleteFollowingTagController, getAllBlogLibrariesByUsernameController, getAllBlogPostsByFollowingTagsController, getAllBlogPostsByUsernameForLibraryController, getAllBlogPostsInLibraryController, getAllFollowingTagsByUsernameController, getAllFollowingTagsController, updateBlogLibraryDescriptionController, updateBlogLibraryStatusController, updateBlogLibraryTitleController, updateBlogPostInLibraryController, updateBlogPostInLibraryStatusController, updateFollowingTagStatusController } from "./blogLibraries/controller.js";
-import { createNewCommentController, deleteCommentController, getAllCommentsByBlogPostIDController, getAllCommentsController, getCommentController, updateCommentController } from "./blogPostComments/controller.js";
+import { createNewCommentController, deleteCommentController, getAllCommentsByBlogPostIDController, getAllCommentsController, getCommentController, getCommentVoteCountByUsernameController, updateCommentController, updateCommentStatusController, updateCommentVoteController } from "./blogPostComments/controller.js";
 
 const router = express.Router();
 
@@ -130,6 +130,7 @@ router.get('/get-all-following-tags', [authCrudMiddleware([]), userCrudMiddlewar
 router.post('/create-new-comment', [authCrudMiddleware([]), userCrudMiddleware(['user'])], createNewCommentController);
 
 router.delete('/delete-comment', [authCrudMiddleware([]), userCrudMiddleware(['user'])], deleteCommentController);
+router.patch('/update-comment-status', [authCrudMiddleware([]), userCrudMiddleware(['user'])], updateCommentStatusController);
 
 router.patch('/update-comment', [authCrudMiddleware([]), userCrudMiddleware(['user'])], updateCommentController);
 
@@ -138,6 +139,13 @@ router.get('/get-all-comments', [authCrudMiddleware([]), userCrudMiddleware(['us
 router.get('/get-all-comments-by-blog-post-id', [authCrudMiddleware(['visitor'])], getAllCommentsByBlogPostIDController);
 
 router.get('/get-comment', [authCrudMiddleware([]), userCrudMiddleware(['user'])], getCommentController);
+
+router.patch('/update-comment-vote', [authCrudMiddleware([]), userCrudMiddleware(['user'])], updateCommentVoteController);
+
+router.get('/get-comment-vote-count-by-username', [authCrudMiddleware([]), userCrudMiddleware(['user'])], getCommentVoteCountByUsernameController);
+
+
+
 
 
 

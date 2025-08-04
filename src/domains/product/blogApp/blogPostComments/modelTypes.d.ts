@@ -7,10 +7,23 @@ interface IComment extends Document {
     parentID?: Types.ObjectId;
     userNickname: string;
     username: string;
+    status: boolean;
+    voteCount: number;
+    vote: number;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+interface ICommentVote extends Document {
+    _id: Types.ObjectId;
+    commentID: Types.ObjectId;
+    username: string;
+    vote: number;
     createdAt: Date;
     updatedAt: Date;
 }
 
 export type {
-    IComment
+    IComment,
+    ICommentVote
 }

@@ -1,7 +1,6 @@
 import { Types } from 'mongoose';
-import { IComment } from './modelTypes.js';
-import { commentSchemaExport } from './model.js';
-import { ICreateNewCommentRequestDto, IUpdateCommentRequestDto } from './requestTypes.js';
+import { commentSchemaExport, commentVoteSchemaExport } from './model.js';
+import { ICreateNewCommentRequestDto, IUpdateCommentVoteRequestDto, IUpdateCommentRequestDto } from './requestTypes.js';
 import { ICommentListResponseDto, ICommentResponseDto, ICommentDeleteResponseDto, ICommentUpdateResponseDto, ICreateNewCommentResponseDto, ICommentWithReplies, ICommentListWithRepliesResponseDto } from './responseTypes.js';
 import { userSchemaExport } from '../../../user/authentication/authModel.js';
 
@@ -21,6 +20,19 @@ const deleteCommentService = async (id:string):Promise<ICommentDeleteResponseDto
         const comment = await commentSchemaExport.findByIdAndDelete(id);
         if (!comment) return { statusCode: 200, success: false, message: 'Comment not found.', data: false };
         return { statusCode: 200, success: true, message: 'Comment deleted successfully.', data: true };
+    } catch (error) {
+        console.log(error);
+        return { error: error, statusCode: 500, message: 'Unknown error! Please contact the admin.', success: false, data: false };
+    }
+}
+
+const updateCommentStatusService = async (id:string):Promise<ICommentDeleteResponseDto> => { 
+    try {
+        const comment = await commentSchemaExport.findById(id);
+        if (!comment) return { statusCode: 200, success: false, message: 'Comment not found.', data: false };
+        comment.status = !comment.status;
+        await comment.save();
+        return { statusCode: 200, success: true, message: 'Comment status updated successfully.', data: true };
     } catch (error) {
         console.log(error);
         return { error: error, statusCode: 500, message: 'Unknown error! Please contact the admin.', success: false, data: false };
@@ -51,7 +63,8 @@ const getAllCommentsService = async ():Promise<ICommentListResponseDto> => {
 }
 
 const getAllCommentsByBlogPostIDService = async (
-    blogPostID: string
+  blogPostID: string,
+  username: string
 ): Promise<ICommentListWithRepliesResponseDto> => {
   try {
     const comments = await commentSchemaExport
@@ -59,17 +72,41 @@ const getAllCommentsByBlogPostIDService = async (
       .sort({ createdAt: -1 })
       .lean();
 
-    const commentsWithUserNickname = await Promise.all(
+    const commentIDs = comments.map(comment => comment._id);
+
+    // Kullanıcının tüm oylarını tek seferde al
+    const userVotes = await commentVoteSchemaExport.find({
+      commentID: { $in: commentIDs },
+      username: username,
+    }).lean();
+
+    // Oyları kolay erişim için map'e çevir
+    const userVoteMap = new Map<string, number>();
+    userVotes.forEach(vote => {
+      userVoteMap.set(vote.commentID.toString(), vote.vote);
+    });
+
+    const commentsWithExtraData = await Promise.all(
       comments.map(async comment => {
-        const user = await userSchemaExport.findOne({username: comment.username});
-        return { ...comment, userNickname: user?.userNickname || comment.username };
+        const user = await userSchemaExport.findOne({ username: comment.username });
+
+        // Toplam oyları hesapla
+        const allVotesForThisComment = await commentVoteSchemaExport.find({ commentID: comment._id });
+        const voteCount = allVotesForThisComment.reduce((total, vote) => total + vote.vote, 0);
+
+        return {
+          ...comment,
+          userNickname: user?.userNickname || comment.username,
+          voteCount,
+          vote: userVoteMap.get(comment._id.toString()) ?? 0, // Oy verilmemişse 0
+        };
       })
     );
 
     const map = new Map<string, ICommentWithReplies>();
     const roots: ICommentWithReplies[] = [];
 
-    commentsWithUserNickname.forEach(comment => {
+    commentsWithExtraData.forEach(comment => {
       map.set(comment._id.toString(), { ...comment, replies: [] });
     });
 
@@ -88,7 +125,7 @@ const getAllCommentsByBlogPostIDService = async (
       statusCode: 200,
       success: true,
       message: 'Comments fetched successfully.',
-      data: roots
+      data: roots,
     };
   } catch (error) {
     console.error(error);
@@ -97,7 +134,7 @@ const getAllCommentsByBlogPostIDService = async (
       statusCode: 500,
       success: false,
       message: 'Unknown error! Please contact the admin.',
-      data: []
+      data: [],
     };
   }
 };
@@ -113,11 +150,48 @@ const getCommentService = async (id:string):Promise<ICommentResponseDto> => {
     }
 }
 
+//commentLikes
+const updateCommentVoteService = async (data:IUpdateCommentVoteRequestDto):Promise<ResponseWithMessage<boolean>> => { 
+    try {
+        const commentVote = await commentVoteSchemaExport.findOne({commentID: data.commentID, username: data.username});
+        if (!commentVote){
+            const newCommentVote = new commentVoteSchemaExport({
+                commentID: data.commentID,
+                username: data.username,
+                vote: data.vote
+            });
+            await newCommentVote.save();
+        } else {
+            if(commentVote.vote === data.vote) data.vote = 0;
+            commentVote.vote = data.vote;
+            await commentVote.save();
+        }
+        return { statusCode: 200, success: true, message: 'Comment vote updated successfully.', data: true };
+    } catch (error) {
+        console.log(error);
+        return { error: error, statusCode: 500, message: 'Unknown error! Please contact the admin.', success: false, data: false };
+    }
+}
+
+const getCommentVoteCountByUsernameService = async (data:{commentID:string, username:string}):Promise<ResponseWithMessage<number>> => { 
+    try {
+        const vote = await commentVoteSchemaExport.findOne({ commentID: data.commentID, username: data.username }).lean();
+        if (!vote) return { statusCode: 200, success: false, message: 'Vote not found.', data: 0 };
+        return { statusCode: 200, success: true, message: 'Vote fetched successfully.', data: vote.vote };
+    } catch (error) {
+        console.log(error);
+        return { error: error, statusCode: 500, message: 'Unknown error! Please contact the admin.', success: false };
+    }
+}
+
 export {
     createNewCommentService,
     deleteCommentService,
     updateCommentService,
+    updateCommentStatusService,
     getAllCommentsService,
     getAllCommentsByBlogPostIDService,
-    getCommentService
+    getCommentService,
+    updateCommentVoteService,
+    getCommentVoteCountByUsernameService
 }
